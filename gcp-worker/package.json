@@ -1,0 +1,25 @@
+{
+  "name": "linkroom-gcp-worker",
+  "version": "1.0.0",
+  "description": "Background worker for LinkRoom ingestion",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "functions-framework --source=dist/index.js --target=processIngestion",
+    "bridge": "tsc && node dist/local-bridge.js",
+    "watch": "tsc -w"
+  },
+  "dependencies": {
+    "@google-cloud/firestore": "^7.7.0",
+    "@google-cloud/functions-framework": "^3.4.0",
+    "@google-cloud/pubsub": "^5.3.0",
+    "@google-cloud/vertexai": "^1.12.0",
+    "@google/generative-ai": "^0.11.5",
+    "dotenv": "^17.4.2",
+    "google-auth-library": "^10.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "typescript": "^5.4.5"
+  }
+}
