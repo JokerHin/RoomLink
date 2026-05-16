@@ -25,5 +25,4 @@ export const db = new Firestore({
 export const pubsub = new PubSub({
   projectId,
   ...creds,
-  fallback: true,
 });
