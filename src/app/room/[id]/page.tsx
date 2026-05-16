@@ -19,7 +19,8 @@ export default function RoomDashboard({ params }: { params: Promise<{ id: string
   const [ingestToCompany, setIngestToCompany] = useState('');
   const [ingestEmail, setIngestEmail] = useState('');
   const [fileName, setFileName] = useState('');
-  const [fileData, setFileData] = useState<string | null>(null);
+  const [fileUrl, setFileUrl] = useState<string | null>(null);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
   
   const ledgerEndRef = React.useRef<HTMLDivElement>(null);
   
@@ -128,21 +129,38 @@ export default function RoomDashboard({ params }: { params: Promise<{ id: string
             : ingestType === 'paperwork'
             ? `[DOCUMENT: ${fileName}]\n\n${ingestText}`
             : ingestText,
-          file_data: fileData, // Persist base64 to Firestore
+          file_url: fileUrl, // GCS public URL
           file_name: fileName
         }),
       });
 
       if (res.ok) {
         setIngestText('');
+        setFileName('');
+        setFileUrl(null);
         setIsIngestModalOpen(false);
-        // Poll multiple times to ensure we catch the AI worker finishing (in case API timeouts are slow)
+        // Smart poll: check every 4s until the summary updated_at changes (max 8 attempts = 32s)
+        const previousUpdatedAt = globalSummary?.updated_at;
         let attempts = 0;
-        const interval = setInterval(async () => {
+        const poll = async () => {
           attempts++;
-          await fetchLedger();
-          if (attempts >= 5) clearInterval(interval); // Poll at 3s, 6s, 9s, 12s, 15s
-        }, 3000);
+          const r = await fetch(`/api/room/${id}/ledger`);
+          if (r.ok) {
+            const data = await r.json();
+            const newUpdatedAt = data.global_summary?.updated_at;
+            // Always update chunks so new event appears immediately
+            setChunks(data.chunks || []);
+            if (newUpdatedAt && newUpdatedAt !== previousUpdatedAt) {
+              setGlobalSummary(data.global_summary);
+              setToastMessage('AI Briefing Updated!');
+              setShowToast(true);
+              setTimeout(() => setShowToast(false), 4000);
+              return; // done
+            }
+          }
+          if (attempts < 8) setTimeout(poll, 4000);
+        };
+        setTimeout(poll, 3000); // first check after 3s
       }
     } catch (err) {
       console.error('Ingest failed', err);
@@ -271,12 +289,7 @@ export default function RoomDashboard({ params }: { params: Promise<{ id: string
     }
   };
 
-  // Auto-trigger AI if summary is missing but events exist
-  useEffect(() => {
-    if (!isLoadingChunks && chunks.length > 0 && !globalSummary) {
-      triggerAISummary();
-    }
-  }, [isLoadingChunks, chunks.length, !!globalSummary]);
+  // NOTE: Auto-trigger removed — AI runs automatically via the worker on every ingest event.
 
   const isSharedRoom = id.startsWith('shared-');
   const roomTypeLabel = isSharedRoom ? "PUBLIC SHARED ROOM" : "INTERNAL PRIVATE ROOM";
@@ -429,19 +442,25 @@ export default function RoomDashboard({ params }: { params: Promise<{ id: string
                           if (line.startsWith('[DOCUMENT: ') && line.endsWith(']')) {
                             const doc = line.substring(11, line.length - 1);
                             const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(doc);
-                            const downloadUrl = chunk.file_data || `https://www.google.com/search?q=${encodeURIComponent(doc)}`;
+                            const fileUrl = chunk.file_url;
                             return (
                               <div key={i} className="mb-4">
-                                <a 
-                                  href={downloadUrl} 
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  download={chunk.file_data ? doc : undefined}
-                                  className="inline-flex items-center gap-2 bg-white/5 border border-white/10 px-4 py-2 text-white hover:bg-[#00FFFF]/20 hover:border-[#00FFFF]/50 transition-none"
-                                >
-                                  {isImage ? <PlusSquare size={14} className="text-[#00FFFF]" /> : <PlusSquare size={14} />}
-                                  {isImage ? 'OPEN FULL IMAGE:' : 'DOWNLOAD ASSET:'} {doc}
-                                </a>
+                                {fileUrl ? (
+                                  <a
+                                    href={fileUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    download={!isImage ? doc : undefined}
+                                    className="inline-flex items-center gap-2 bg-white/5 border border-white/10 px-4 py-2 text-white hover:bg-[#00FFFF]/20 hover:border-[#00FFFF]/50 transition-none"
+                                  >
+                                    {isImage ? <PlusSquare size={14} className="text-[#00FFFF]" /> : <PlusSquare size={14} />}
+                                    {isImage ? 'OPEN FULL IMAGE:' : 'DOWNLOAD ASSET:'} {doc}
+                                  </a>
+                                ) : (
+                                  <span className="inline-flex items-center gap-2 bg-white/5 border border-white/10 px-4 py-2 text-white/40 text-sm">
+                                    <PlusSquare size={14} /> {doc} (file not available)
+                                  </span>
+                                )}
                               </div>
                             );
                           }
@@ -449,10 +468,10 @@ export default function RoomDashboard({ params }: { params: Promise<{ id: string
                         })}
                       </div>
 
-                      {/* PERSISTED IMAGE VIEW */}
-                      {chunk.file_data && /\.(jpg|jpeg|png|gif|webp)$/i.test(chunk.file_name || '') && (
+                      {/* GCS IMAGE PREVIEW */}
+                      {chunk.file_url && /\.(jpg|jpeg|png|gif|webp)$/i.test(chunk.file_name || '') && (
                         <div className="mt-4 border border-white/10 p-2 bg-white/5">
-                          <img src={chunk.file_data} alt="uploaded content" className="max-w-full h-auto object-contain max-h-[400px]" />
+                          <img src={chunk.file_url} alt="uploaded content" className="max-w-full h-auto object-contain max-h-[400px]" />
                         </div>
                       )}
                     </div>
@@ -640,23 +659,36 @@ export default function RoomDashboard({ params }: { params: Promise<{ id: string
                 <div className="flex flex-col gap-2">
                   <label className="text-xs uppercase tracking-widest font-semibold text-white/50">Upload Document (Any Format)</label>
                   <div className="relative border-2 border-dashed border-white/20 p-8 flex flex-col items-center justify-center gap-2 hover:border-[#00FFFF] cursor-pointer group">
-                    <input 
-                      type="file" 
-                      onChange={(e) => {
+                    <input
+                      type="file"
+                      onChange={async (e) => {
                         const file = e.target.files?.[0];
-                        if (file) {
-                          setFileName(file.name);
-                          const reader = new FileReader();
-                          reader.onloadend = () => {
-                            setFileData(reader.result as string);
-                          };
-                          reader.readAsDataURL(file);
+                        if (!file) return;
+                        setFileName(file.name);
+                        setIsUploadingFile(true);
+                        try {
+                          const form = new FormData();
+                          form.append('file', file);
+                          const res = await fetch('/api/upload', { method: 'POST', body: form });
+                          if (res.ok) {
+                            const data = await res.json();
+                            setFileUrl(data.url);
+                          } else {
+                            console.error('Upload failed');
+                          }
+                        } finally {
+                          setIsUploadingFile(false);
                         }
                       }}
                       className="absolute inset-0 opacity-0 cursor-pointer"
                     />
                     <PlusSquare className="text-white/30 group-hover:text-[#00FFFF]" size={32} />
-                    <span className="text-sm text-white/40">{fileName || "Click to upload doc, pdf, xls, etc."}</span>
+                    {isUploadingFile
+                      ? <span className="text-sm text-[#00FFFF] animate-pulse">Uploading to GCS...</span>
+                      : fileUrl
+                      ? <span className="text-sm text-[#00FFFF]">{fileName} ✓ Uploaded</span>
+                      : <span className="text-sm text-white/40">{fileName || 'Click to upload doc, pdf, xls, etc.'}</span>
+                    }
                   </div>
                 </div>
               )}

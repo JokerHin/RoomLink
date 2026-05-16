@@ -6,7 +6,7 @@ const TOPIC_NAME = 'linkroom-ingestion';
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { workspace_id, uploaded_by, source_type, raw_text } = body;
+    const { workspace_id, uploaded_by, source_type, raw_text, file_url, file_name } = body;
 
     if (!workspace_id || !uploaded_by || !source_type || !raw_text) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -18,6 +18,8 @@ export async function POST(req: Request) {
       timestamp: new Date().toISOString(),
       source_type,
       raw_text,
+      ...(file_url ? { file_url } : {}),
+      ...(file_name ? { file_name } : {}),
     };
 
     const dataBuffer = Buffer.from(JSON.stringify(payload));

@@ -18,7 +18,7 @@ interface PubSubMessage {
   timestamp: string;
   source_type: "email_string" | "meeting_transcript" | "document";
   raw_text: string;
-  file_data?: string;
+  file_url?: string;   // GCS public URL
   file_name?: string;
 }
 
@@ -39,6 +39,7 @@ cloudEvent('processIngestion', async (cloudEvent: any) => {
 
   try {
     let embeddingVector: number[] = Array(768).fill(0);
+    const EMBEDDING_DIMENSIONS = 768; // Firestore supports max 2048, Gemini Embedding 2 default is 3072
     
     // 1. Generate Embeddings via Service Account OAuth2 (Gemini Embedding 2)
     try {
@@ -54,7 +55,10 @@ cloudEvent('processIngestion', async (cloudEvent: any) => {
       const embeddingRes = await fetch(embeddingUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': bearerToken },
-        body: JSON.stringify({ content: { parts: [{ text: payload.raw_text }] } })
+        body: JSON.stringify({
+          content: { parts: [{ text: payload.raw_text }] },
+          outputDimensionality: EMBEDDING_DIMENSIONS  // Limit to 768 dims for Firestore compatibility
+        })
       });
       const embeddingData = await embeddingRes.json();
       if (embeddingData.embedding?.values) {
@@ -66,7 +70,10 @@ cloudEvent('processIngestion', async (cloudEvent: any) => {
         const fallbackRes = await fetch(fallbackUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: { parts: [{ text: payload.raw_text }] } })
+          body: JSON.stringify({
+            content: { parts: [{ text: payload.raw_text }] },
+            outputDimensionality: EMBEDDING_DIMENSIONS
+          })
         });
         const fallbackData = await fallbackRes.json();
         if (fallbackData.embedding?.values) {
@@ -91,7 +98,7 @@ cloudEvent('processIngestion', async (cloudEvent: any) => {
         timestamp: payload.timestamp || new Date().toISOString(),
         source_type: payload.source_type,
         raw_text: payload.raw_text,
-        file_data: payload.file_data || null,
+        file_url: payload.file_url || null,
         file_name: payload.file_name || null,
         ...(embeddingVector.length > 0 && embeddingVector[0] !== 0 ? { embedding_vector: FieldValue.vector(embeddingVector) } : {})
       };
@@ -250,7 +257,7 @@ cloudEvent('processIngestion', async (cloudEvent: any) => {
     console.log(`Global Summary and Ecosystem Analytics updated for workspace: ${payload.workspace_id}`);
 
   } catch (error) {
-    console.error('Error processing ingestion:', error);
-    throw error;
+    // Log but do NOT throw — throwing causes HTTP 500 → infinite PubSub retries
+    console.error('Error processing ingestion (non-fatal):', error);
   }
 });

@@ -90,10 +90,20 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-black text-white font-sans overflow-hidden selection:bg-[#00FFFF] selection:text-black">
       
-      {/* BACKGROUND DECOR */}
-      <div className="fixed inset-0 pointer-events-none opacity-20">
-        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-[#00FFFF] rounded-full blur-[180px]"></div>
-        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-[#FF00FF] rounded-full blur-[180px]"></div>
+      {/* BACKGROUND: World Map */}
+      <div className="fixed inset-0 pointer-events-none">
+        {/* World map image */}
+        <img
+          src="/background.png"
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover object-center"
+          style={{ opacity: 0.35 }}
+        />
+        {/* Dark overlay to keep text readable */}
+        <div className="absolute inset-0 bg-black/30" />
+        {/* Neon glow orbs */}
+        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-[#00FFFF] rounded-full blur-[200px] opacity-10" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-[#FF00FF] rounded-full blur-[200px] opacity-10" />
       </div>
 
       {/* HEADER */}

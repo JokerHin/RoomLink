@@ -38,6 +38,6 @@ export interface LedgerChunk {
   summary_markdown: string;
   action_items: ActionItem[];
   embedding_vector?: number[]; // 768 Floating point array
-  file_data?: string;
+  file_url?: string;   // GCS public URL (replaces Base64 file_data)
   file_name?: string;
 }
